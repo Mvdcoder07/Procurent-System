@@ -2,3 +2,8 @@ opencv-python
 mediapipe
 streamlit
 pandas
+numpy
+flask
+flask-limiter
+flask-cors
+psutil

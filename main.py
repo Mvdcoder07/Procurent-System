@@ -1,233 +1,158 @@
 import cv2
 import time
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-import pandas as pd
-from datetime import datetime
+import config
+from detector import FaceDetector
+from logger import EventLogger
 
-# Initialize MediaPipe Face Detector
-base_options = mp.tasks.BaseOptions(
-    model_asset_path='detector.tflite'
-)
-options = mp.tasks.vision.FaceDetectorOptions(
-    base_options=base_options,
-    running_mode=mp.tasks.vision.RunningMode.IMAGE
-)
-detector = mp.tasks.vision.FaceDetector.create_from_options(options)
-
-# Absence tracking variables
-absence_start_time = None
-absence_threshold = 5
-prev_pose = "Looking Straight"
-pose_count = 0
-
-print("=" * 50)
-print("   AI POWERED PROCTORING SYSTEM")
-print("   Developed by Mangesh Deokar")
-print("   SYCET IGNITE HACKATHON 2026")
-print("=" * 50)
-print("\nInstructions:")
-print("1. Make sure your face is clearly visible")
-print("2. Look straight at camera during exam")
-print("3. Do not let others enter the frame")
-print("4. Press Q to stop proctoring session")
-print("\nStarting system...")
-
-cap = cv2.VideoCapture("test1.mp4")
-
-if not cap.isOpened():
-    print("ERROR: Cannot open camera or video file")
-    print("Check your IP address or video file name")
-    exit()
-else:
-    print("Camera/Video opened successfully!")
-
-# Get FPS — handle live camera
-fps = cap.get(cv2.CAP_PROP_FPS)
-if fps == 0 or fps is None:
-    fps = 30  # default for live camera
-
-def get_head_pose(frame, bbox):
-    frame_height, frame_width = frame.shape[:2]
-    frame_center_x = frame_width // 2
-    frame_center_y = frame_height // 2
-
-    x = int(bbox.origin_x)
-    y = int(bbox.origin_y)
-    w = int(bbox.width)
-    h = int(bbox.height)
-
-    face_center_x = x + w // 2
-    face_center_y = y + h // 2
-
-    x_deviation = face_center_x - frame_center_x
-    y_deviation = face_center_y - frame_center_y
-
-    threshold = frame_width // 6
-
-    if x_deviation < -threshold:
-        return "Looking Left"
-    elif x_deviation > threshold:
-        return "Looking Right"
-    elif y_deviation < -threshold:
-        return "Looking Up"
-    elif y_deviation > threshold:
-        return "Looking Down"
-    else:
-        return "Looking Straight"
-
-def log_event(event_type):
-    global last_logged_event, last_log_time
+def verify_pin():
+    print("=" * 50)
+    print("   AI POWERED PROCTORING SYSTEM")
+    print("   Developer: Tech Titans")
+    print("   SYCET IGNITE HACKATHON 2026")
+    print("=" * 50)
     
-    current_time = time.time()
-    
-    # Avoid logging same event repeatedly
-    if (event_type != last_logged_event or 
-        current_time - last_log_time > log_cooldown):
-        
-        events.append({
-            'timestamp': datetime.now().strftime('%H:%M:%S'),
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'event': event_type
-        })
-        
-        last_logged_event = event_type
-        last_log_time = current_time
-        
-        # Save to CSV immediately
-        pd.DataFrame(events).to_csv('events_log.csv', index=False)
-        print(f"Event logged: {event_type}")
+    pin = input("\nEnter exam PIN to start: ")
+    if pin != config.EXAM_PIN:
+        print("Invalid PIN — Access Denied")
+        exit()
+    print("\nPIN verified — Starting system...")
 
-print("Starting Proctoring System...")
-print("Press Q to quit")
+def get_student_info():
+    print("\nStudent Verification")
+    student_id = input("Enter your Student ID: ")
+    student_name = input("Enter your Name: ")
+    return student_id, student_name
 
-# Event logger
-events = []
-last_logged_event = None
-last_log_time = 0
-log_cooldown = 3  # seconds between same event logs
+def main():
+    verify_pin()
 
-while cap.isOpened():
-    ret, frame = cap.read()
+    student_id, student_name = get_student_info()
+    print(f"\nWelcome {student_name} — ID: {student_id}")
 
-    if not ret:
-        print("Cannot read frame — check IP or video file")
-        break
+    # Initialize modules
+    detector = FaceDetector()
+    logger = EventLogger(student_id)
 
-    # Convert to RGB for MediaPipe
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(
-        image_format=mp.ImageFormat.SRGB,
-        data=rgb_frame
-    )
+    # Open video source
+    cap = cv2.VideoCapture(config.VIDEO_SOURCE)
 
-    # Detect faces
-    results = detector.detect(mp_image)
-    face_count = len(results.detections) if results.detections else 0
+    if not cap.isOpened():
+        print("ERROR: Cannot open camera or video file")
+        print("Check VIDEO_SOURCE in config.py")
+        exit()
 
-    if face_count > 1:
-        # Multiple faces detected
-        for detection in results.detections:
-            bbox = detection.bounding_box
-            cv2.rectangle(frame,
-                         (int(bbox.origin_x), int(bbox.origin_y)),
-                         (int(bbox.origin_x + bbox.width),
-                          int(bbox.origin_y + bbox.height)),
-                         (0, 0, 255), 2)
-        cv2.putText(frame, f"ALERT: Multiple Faces — {face_count}",
-                   (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                   1, (0, 0, 255), 2)
-        log_event(f"Multiple Faces Detected — {face_count}")
-        absence_start_time = None
+    print("System started successfully!")
+    print("Press Q to stop\n")
 
-    elif face_count == 1:
-        # Single face — reset absence timer
-        absence_start_time = None
-        bbox = results.detections[0].bounding_box
+    # Get FPS
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0:
+        fps = 30
 
-        # Draw green box around face
-        cv2.rectangle(frame,
-                     (int(bbox.origin_x), int(bbox.origin_y)),
-                     (int(bbox.origin_x + bbox.width),
-                      int(bbox.origin_y + bbox.height)),
-                     (0, 255, 0), 2)
+    # Tracking variables
+    absence_start_time = None
+    prev_pose = "Looking Straight"
+    pose_count = 0
 
-        # Get head pose
-        pose = get_head_pose(frame, bbox)
+    while cap.isOpened():
+        ret, frame = cap.read()
 
-        # Smoothing — only alert if same pose 3 times in a row
-        if pose == prev_pose:
-            pose_count += 1
-        else:
-            pose_count = 0
-            prev_pose = pose
+        if not ret:
+            print("Video ended or camera disconnected")
+            break
 
-        if pose == "Looking Straight":
-            cv2.putText(frame, "Status: OK",
-                       (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                       1, (0, 255, 0), 2)
-        else:
-            if pose_count >= 3:
-                cv2.putText(frame, f"ALERT: {pose}",
-                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                           1, (0, 0, 255), 2)
+        # Detect faces
+        detections = detector.detect_faces(frame)
+        face_count = len(detections)
+
+        if face_count > 1:
+            # Multiple faces
+            for detection in detections:
+                detector.draw_face_box(
+                    frame, detection.bounding_box, config.COLOR_RED)
+
+            cv2.putText(frame, f"ALERT: Multiple Faces — {face_count}",
+                       (50, 50), config.FONT,
+                       config.FONT_SCALE, config.COLOR_RED,
+                       config.FONT_THICKNESS)
+            absence_start_time = None
+            logger.log_event(f"Multiple Faces Detected — {face_count}")
+
+        elif face_count == 1:
+            # Single face
+            absence_start_time = None
+            bbox = detections[0].bounding_box
+
+            detector.draw_face_box(frame, bbox, config.COLOR_GREEN)
+
+            pose = detector.get_head_pose(frame, bbox)
+
+            # Smoothing
+            if pose == prev_pose:
+                pose_count += 1
             else:
-                cv2.putText(frame, f"Warning: {pose}",
-                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                           1, (0, 165, 255), 2)
-                log_event(f"Suspicious Pose — {pose}")
+                pose_count = 0
+                prev_pose = pose
 
-    else:
-        # No face detected — start absence timer
-        current_time = time.time()
-
-        if absence_start_time is None:
-            absence_start_time = current_time
-
-        absence_duration = current_time - absence_start_time
-
-        if absence_duration >= absence_threshold:
-            cv2.putText(frame, f"ALERT: Absent for {int(absence_duration)}s",
-                       (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                       1, (0, 0, 255), 2)
-            log_event(f"Candidate Absent — {int(absence_duration)} seconds")
+            if pose == "Looking Straight":
+                cv2.putText(frame, "Status: OK",
+                           (50, 50), config.FONT,
+                           config.FONT_SCALE, config.COLOR_GREEN,
+                           config.FONT_THICKNESS)
+            else:
+                if pose_count >= config.POSE_CONFIRMATION_FRAMES:
+                    cv2.putText(frame, f"ALERT: {pose}",
+                               (50, 50), config.FONT,
+                               config.FONT_SCALE, config.COLOR_RED,
+                               config.FONT_THICKNESS)
+                    logger.log_event(f"Suspicious Pose — {pose}")
+                else:
+                    cv2.putText(frame, f"Warning: {pose}",
+                               (50, 50), config.FONT,
+                               config.FONT_SCALE, config.COLOR_ORANGE,
+                               config.FONT_THICKNESS)
 
         else:
-            cv2.putText(frame, f"No Face — {int(absence_duration)}s",
-                       (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                       1, (0, 165, 255), 2)
+            # No face
+            current_time = time.time()
 
-    # Show frame counter and FPS
-    cv2.putText(frame, f"FPS: {int(fps)}",
-               (frame.shape[1] - 100, 30),
-               cv2.FONT_HERSHEY_SIMPLEX,
-               0.7, (255, 255, 255), 2)
+            if absence_start_time is None:
+                absence_start_time = current_time
 
-    cv2.imshow("AI Proctoring System", frame)
+            absence_duration = current_time - absence_start_time
 
-    if cv2.waitKey(int(1000/fps)) & 0xFF == ord('q'):
-        break
+            if absence_duration >= config.ABSENCE_THRESHOLD:
+                cv2.putText(frame,
+                           f"ALERT: Absent for {int(absence_duration)}s",
+                           (50, 50), config.FONT,
+                           config.FONT_SCALE, config.COLOR_RED,
+                           config.FONT_THICKNESS)
+                logger.log_event(
+                    f"Candidate Absent — {int(absence_duration)} seconds")
+            else:
+                cv2.putText(frame,
+                           f"No Face — {int(absence_duration)}s",
+                           (50, 50), config.FONT,
+                           config.FONT_SCALE, config.COLOR_ORANGE,
+                           config.FONT_THICKNESS)
 
+        # Show FPS
+        cv2.putText(frame, f"FPS: {int(fps)}",
+                   (frame.shape[1] - 100, 30),
+                   config.FONT, 0.7,
+                   config.COLOR_WHITE,
+                   config.FONT_THICKNESS)
 
-cap.release()
-cv2.destroyAllWindows()
-detector.close()
+        cv2.imshow("AI Proctoring System", frame)
 
-print("\n" + "=" * 50)
-print("   PROCTORING SESSION ENDED")
-print("=" * 50)
+        if cv2.waitKey(int(1000/fps)) & 0xFF == ord('q'):
+            break
 
-if events:
-    final_df = pd.DataFrame(events)
-    final_df.to_csv('events_log.csv', index=False)
-    
-    print(f"\nSession Summary:")
-    print(f"Total Suspicious Events: {len(events)}")
-    print(f"\nEvent Breakdown:")
-    print(final_df['event'].value_counts().to_string())
-    print(f"\nDetailed log saved to events_log.csv")
-    print(f"View dashboard for visual report")
-else:
-    print("\nNo suspicious events detected")
-    print("Session was clean!")
+    # Cleanup
+    cap.release()
+    cv2.destroyAllWindows()
+    detector.close()
+    logger.print_summary()
+
+if __name__ == "__main__":
+    main()

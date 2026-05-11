@@ -1,0 +1,4 @@
+student_id,date,timestamp,event
+SYCET01,2026-05-09,13:49:06,Suspicious Pose — Looking Left
+SYCET01,2026-05-09,13:49:11,Candidate Absent — 5 seconds
+SYCET01,2026-05-09,13:49:12,Candidate Absent — 6 seconds
