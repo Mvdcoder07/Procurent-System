@@ -7,7 +7,7 @@ def get_student_log_file(student_id):
     os.makedirs('logs', exist_ok=True)
     return f"logs/events_{student_id}.csv"
 # Camera settings
-VIDEO_SOURCE = "test1.mp4"  # change to 0 for webcam or DroidCam URL
+VIDEO_SOURCE = 0  # change to 0 for webcam or DroidCam URL
 
 # Detection settings
 FACE_MODEL_PATH = "detector.tflite"
